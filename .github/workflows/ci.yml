@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Tipos, lint, testes unitários, auditoria e build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Instalar dependências
+        run: npm ci
+      - name: Verificar tipos
+        run: npx tsc -b
+      - name: Lint
+        run: npx eslint .
+      - name: Testes unitários
+        run: npx vitest run
+      - name: Auditoria das dependências de produção
+        run: npm audit --omit=dev --audit-level=high
+      - name: Build
+        run: npm run build
+
+  e2e:
+    name: Testes de navegador (com os cabeçalhos do vercel.json)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Instalar dependências
+        run: npm ci
+      - name: Instalar o Chromium do Playwright
+        run: npx playwright install --with-deps chromium
+      - name: Build
+        run: npm run build
+      - name: Subir o servidor com os cabeçalhos de segurança
+        run: |
+          node scripts/serve-with-headers.mjs 4173 > serve.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:4173/; then
+              echo "Servidor pronto na porta 4173"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "O servidor não respondeu na porta 4173"
+          cat serve.log
+          exit 1
+      - name: Rodar os testes de navegador
+        run: npx playwright test
+        env:
+          TEST_BASE_URL: http://127.0.0.1:4173
+      - name: Enviar os resultados dos testes (somente em falha)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

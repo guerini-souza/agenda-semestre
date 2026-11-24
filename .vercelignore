@@ -1,0 +1,10 @@
+/*.pdf
+/*.xls
+/*.xlsx
+.npm-cache
+.playwright-browsers
+test-results
+playwright-report
+tests
+.env*
+PROMPT-MESTRE.md
